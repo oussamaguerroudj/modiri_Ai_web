@@ -9,21 +9,48 @@ const REFRESH_TOKEN_KEY = 'modiri.refreshToken';
 const USER_KEY = 'modiri.user';
 
 export const tokenStorage = {
-  getAccessToken: () => localStorage.getItem(ACCESS_TOKEN_KEY),
-  getRefreshToken: () => localStorage.getItem(REFRESH_TOKEN_KEY),
+  getAccessToken: () => {
+    try {
+      const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+      return !token || token === 'undefined' || token === 'null' ? null : token;
+    } catch {
+      return null;
+    }
+  },
+  getRefreshToken: () => {
+    try {
+      const token = localStorage.getItem(REFRESH_TOKEN_KEY);
+      return !token || token === 'undefined' || token === 'null' ? null : token;
+    } catch {
+      return null;
+    }
+  },
   getUser: () => {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem(USER_KEY);
+      if (!raw || raw === 'undefined' || raw === 'null') return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   },
   setSession: ({ user, accessToken, refreshToken }) => {
-    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
-    if (accessToken) localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-    if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    try {
+      if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+      if (accessToken) localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    } catch {
+      // storage unavailable
+    }
   },
   clear: () => {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    try {
+      localStorage.removeItem(ACCESS_TOKEN_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    } catch {
+      // storage unavailable
+    }
   },
 };
 
