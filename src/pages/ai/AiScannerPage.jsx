@@ -16,7 +16,7 @@ import {
   UtensilsCrossed,
 } from 'lucide-react';
 import { scanInvoice, confirmScannedInvoice } from '../../api/ai.js';
-import { getProducts, createProduct } from '../../api/products.js';
+import { getProducts, createProduct, updateProduct } from '../../api/products.js';
 import { createSale } from '../../api/sales.js';
 import {
   getRestaurantInventory,
@@ -64,15 +64,13 @@ export default function AiScannerPage() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Fetch existing products if sales mode is active
+  // Fetch existing products for matching & pre-filling sale prices
   useEffect(() => {
-    if (mode === 'sales') {
-      getProducts({ limit: 100 })
-        .then((res) => {
-          setExistingProducts(res?.products || (Array.isArray(res) ? res : []));
-        })
-        .catch(() => {});
-    }
+    getProducts({ limit: 500 })
+      .then((res) => {
+        setExistingProducts(res?.products || (Array.isArray(res) ? res : []));
+      })
+      .catch(() => {});
   }, [mode]);
 
   function handleFileSelect(e) {
@@ -122,16 +120,27 @@ export default function AiScannerPage() {
       clearInterval(interval);
       setLogId(null);
       setScannedItems(
-        DEMO_ITEMS.map((item) => ({
-          name: item.name,
-          quantity: item.quantity,
-          purchasePrice: item.purchasePrice,
-          matchedProductId: '',
-          expirationDate: '',
-          size: '',
-          color: '',
-          brand: '',
-        }))
+        DEMO_ITEMS.map((item) => {
+          const match = existingProducts.find(
+            (p) => p.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+          );
+          return {
+            name: item.name,
+            quantity: item.quantity,
+            purchasePrice: item.purchasePrice,
+            salePrice:
+              match?.selling_price != null
+                ? match.selling_price
+                : match?.sellingPrice != null
+                ? match.sellingPrice
+                : '',
+            matchedProductId: match?.id || '',
+            expirationDate: '',
+            size: '',
+            color: '',
+            brand: '',
+          };
+        })
       );
       setStage('review');
     }, 2800);
@@ -154,16 +163,28 @@ export default function AiScannerPage() {
 
       clearInterval(stageInterval);
 
-      const items = (result?.items || []).map((raw) => ({
-        name: raw.name || '',
-        quantity: Number(raw.quantity) || 1,
-        purchasePrice: Number(raw.unitPrice || raw.purchasePrice) || 0,
-        matchedProductId: '',
-        expirationDate: '',
-        size: '',
-        color: '',
-        brand: '',
-      }));
+      const items = (result?.items || []).map((raw) => {
+        const rawName = (raw.name || '').trim();
+        const match = existingProducts.find(
+          (p) => p.name.trim().toLowerCase() === rawName.toLowerCase()
+        );
+        return {
+          name: rawName,
+          quantity: Number(raw.quantity) || 1,
+          purchasePrice: Number(raw.unitPrice || raw.purchasePrice) || 0,
+          salePrice:
+            match?.selling_price != null
+              ? match.selling_price
+              : match?.sellingPrice != null
+              ? match.sellingPrice
+              : '',
+          matchedProductId: match?.id || '',
+          expirationDate: '',
+          size: '',
+          color: '',
+          brand: '',
+        };
+      });
 
       setLogId(result?.logId || null);
 
@@ -173,6 +194,7 @@ export default function AiScannerPage() {
             name: '',
             quantity: 1,
             purchasePrice: 0,
+            salePrice: '',
             matchedProductId: '',
             expirationDate: '',
             size: '',
@@ -182,15 +204,6 @@ export default function AiScannerPage() {
         ]);
         setError('No text line items detected in invoice. You can enter them manually below.');
       } else {
-        // Auto-match for sales mode
-        if (mode === 'sales' && existingProducts.length > 0) {
-          items.forEach((it) => {
-            const match = existingProducts.find(
-              (p) => p.name.trim().toLowerCase() === it.name.trim().toLowerCase()
-            );
-            if (match) it.matchedProductId = match.id;
-          });
-        }
         setScannedItems(items);
       }
 
@@ -208,6 +221,7 @@ export default function AiScannerPage() {
           name: '',
           quantity: 1,
           purchasePrice: 0,
+          salePrice: '',
           matchedProductId: '',
           expirationDate: '',
           size: '',
@@ -222,7 +236,31 @@ export default function AiScannerPage() {
   function handleItemChange(index, field, value) {
     setScannedItems((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
+      const item = { ...next[index], [field]: value };
+
+      if (field === 'matchedProductId' && value) {
+        const match = existingProducts.find((p) => p.id === value);
+        if (
+          match &&
+          (item.salePrice === '' || item.salePrice === undefined || item.salePrice === null)
+        ) {
+          item.salePrice = match.selling_price ?? match.sellingPrice ?? '';
+        }
+      } else if (field === 'name' && value) {
+        const match = existingProducts.find(
+          (p) => p.name.trim().toLowerCase() === value.trim().toLowerCase()
+        );
+        if (match) {
+          if (item.salePrice === '' || item.salePrice === undefined || item.salePrice === null) {
+            item.salePrice = match.selling_price ?? match.sellingPrice ?? '';
+          }
+          if (!item.matchedProductId) {
+            item.matchedProductId = match.id;
+          }
+        }
+      }
+
+      next[index] = item;
       return next;
     });
   }
@@ -234,6 +272,7 @@ export default function AiScannerPage() {
         name: '',
         quantity: 1,
         purchasePrice: 0,
+        salePrice: '',
         matchedProductId: '',
         expirationDate: '',
         size: '',
@@ -247,27 +286,62 @@ export default function AiScannerPage() {
     setScannedItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const grandTotal = scannedItems.reduce(
+  const totalPurchaseCost = scannedItems.reduce(
     (acc, it) => acc + (Number(it.purchasePrice) || 0) * (Number(it.quantity) || 1),
     0
   );
 
+  const totalSaleValue = scannedItems.reduce(
+    (acc, it) => acc + (Number(it.salePrice) || 0) * (Number(it.quantity) || 1),
+    0
+  );
+
+  const projectedGrossProfit = totalSaleValue - totalPurchaseCost;
+  const grandTotal = totalPurchaseCost;
+
   async function handleConfirmSubmit() {
     if (scannedItems.length === 0) {
-      setError('Please add at least one line item.');
+      setError(t('pleaseAddOneItem', 'Please add at least one line item.'));
       return;
+    }
+
+    // Strict Validation
+    for (const it of scannedItems) {
+      if (!it.name || !it.name.trim()) {
+        setError(t('itemNeedsName', 'All items must have a valid product name.'));
+        return;
+      }
+      if (!it.quantity || Number(it.quantity) <= 0 || isNaN(Number(it.quantity))) {
+        setError(t('invalidQuantity', 'All items must have a valid quantity greater than 0.'));
+        return;
+      }
+      if (it.purchasePrice === '' || isNaN(Number(it.purchasePrice)) || Number(it.purchasePrice) < 0) {
+        setError(t('invalidPurchasePrice', 'Purchase price must be a valid non-negative number.'));
+        return;
+      }
+      if (mode === 'stock') {
+        const sPriceNum = Number(it.salePrice);
+        if (
+          it.salePrice === '' ||
+          it.salePrice === undefined ||
+          it.salePrice === null ||
+          isNaN(sPriceNum) ||
+          sPriceNum <= 0
+        ) {
+          setError(
+            `${t('invalidSalePrice', 'Sale price must be a valid positive number for every item.')} (${it.name.trim() || 'Item'})`
+          );
+          return;
+        }
+      }
     }
 
     if (mode === 'sales') {
       const unmatched = scannedItems.some((it) => !it.matchedProductId);
       if (unmatched) {
-        setError('All scanned items must be matched to an existing product in stock before recording a sale.');
-        return;
-      }
-    } else {
-      const unnammed = scannedItems.some((it) => !it.name.trim());
-      if (unnammed) {
-        setError('All items must have a valid product name.');
+        setError(
+          t('matchAllItems', 'All scanned items must be matched to an existing product in stock before recording a sale.')
+        );
         return;
       }
     }
@@ -308,10 +382,14 @@ export default function AiScannerPage() {
         // Sales Mode
         const saleItems = scannedItems.map((it) => {
           const prod = existingProducts.find((p) => p.id === it.matchedProductId);
+          const unitPrice =
+            it.salePrice !== '' && !isNaN(Number(it.salePrice)) && Number(it.salePrice) > 0
+              ? Number(it.salePrice)
+              : prod?.selling_price || Number(it.purchasePrice) || 0;
           return {
             product_id: it.matchedProductId,
             quantity: Number(it.quantity) || 1,
-            unit_price: prod?.selling_price || Number(it.purchasePrice) || 0,
+            unit_price: unitPrice,
           };
         });
 
@@ -321,21 +399,47 @@ export default function AiScannerPage() {
         });
         setSuccessMessage('Sale successfully recorded from scanned invoice!');
       } else {
-        // Stock mode: create inventory products
+        // Stock mode: create or update inventory products
         for (const it of scannedItems) {
-          await createProduct({
-            name: it.name.trim(),
-            category: 'Scanned Invoices',
-            purchase_price: Number(it.purchasePrice) || 0,
-            selling_price: (Number(it.purchasePrice) || 0) * 1.3,
-            quantity: Number(it.quantity) || 1,
-            expiration_date: it.expirationDate || null,
-            size: it.size || null,
-            color: it.color || null,
-            brand: it.brand || null,
-          });
+          const pPrice = Number(it.purchasePrice) || 0;
+          const sPrice = Number(it.salePrice);
+          const qty = Number(it.quantity) || 1;
+
+          const match = existingProducts.find(
+            (p) =>
+              (it.matchedProductId && p.id === it.matchedProductId) ||
+              p.name.trim().toLowerCase() === it.name.trim().toLowerCase()
+          );
+
+          if (match) {
+            await updateProduct(match.id, {
+              quantity: (Number(match.quantity) || 0) + qty,
+              purchasePrice: pPrice,
+              sellingPrice: sPrice,
+              purchase_price: pPrice,
+              selling_price: sPrice,
+              expirationDate: it.expirationDate || match.expiration_date || undefined,
+              size: it.size || match.size || undefined,
+              color: it.color || match.color || undefined,
+              brand: it.brand || match.brand || undefined,
+            });
+          } else {
+            await createProduct({
+              name: it.name.trim(),
+              category: 'Scanned Invoices',
+              purchasePrice: pPrice,
+              sellingPrice: sPrice,
+              purchase_price: pPrice,
+              selling_price: sPrice,
+              quantity: qty,
+              expirationDate: it.expirationDate || undefined,
+              size: it.size || undefined,
+              color: it.color || undefined,
+              brand: it.brand || undefined,
+            });
+          }
         }
-        setSuccessMessage(`Successfully added ${scannedItems.length} products to inventory!`);
+        setSuccessMessage(`Successfully added/updated ${scannedItems.length} products in inventory!`);
       }
 
       // Mark ai_logs as confirmed
@@ -548,26 +652,59 @@ export default function AiScannerPage() {
               <table className="w-full text-left text-sm text-slate-300">
                 <thead className="border-b border-line bg-ink-800/70 text-xs font-semibold uppercase text-slate-400">
                   <tr>
-                    <th className="px-4 py-3">{t('itemName')}</th>
-                    {mode === 'sales' && <th className="px-4 py-3">{t('matchedProduct')}</th>}
-                    <th className="px-4 py-3">{t('quantity')}</th>
-                    <th className="px-4 py-3">{t('unitPrice')} ({company?.currency || 'DZD'})</th>
-                    {isPharmacy && mode !== 'sales' && <th className="px-4 py-3">{t('expiration')}</th>}
+                    <th className="px-4 py-3 min-w-[170px]">{t('itemName')}</th>
+                    {mode === 'sales' && <th className="px-4 py-3 min-w-[200px]">{t('matchedProduct')}</th>}
+                    <th className="px-4 py-3 w-20 text-center">{t('quantity')}</th>
+                    <th className="px-4 py-3 w-36">
+                      <div className="flex flex-col">
+                        <span>{t('purchasePrice')}</span>
+                        <span className="text-[10px] font-normal lowercase text-slate-400">
+                          ({company?.currency || 'DZD'})
+                        </span>
+                      </div>
+                    </th>
+                    {mode !== 'restaurantInventory' && (
+                      <th className="px-4 py-3 w-36">
+                        <div className="flex flex-col">
+                          <span className="text-white">{t('salePrice')}</span>
+                          <span className="text-[10px] font-normal lowercase text-brand-blue">
+                            ({company?.currency || 'DZD'})
+                          </span>
+                        </div>
+                      </th>
+                    )}
+                    {mode !== 'restaurantInventory' && (
+                      <th className="px-4 py-3 w-28 text-center">{t('unitProfit')}</th>
+                    )}
+                    {isPharmacy && mode !== 'sales' && <th className="px-4 py-3 w-36">{t('expiration')}</th>}
                     {isClothing && mode !== 'sales' && (
                       <>
-                        <th className="px-4 py-3">{t('size')}</th>
-                        <th className="px-4 py-3">{t('color')}</th>
+                        <th className="px-4 py-3 w-24">{t('size')}</th>
+                        <th className="px-4 py-3 w-24">{t('color')}</th>
                       </>
                     )}
-                    <th className="px-4 py-3 text-right">{t('subtotal')}</th>
-                    <th className="px-4 py-3 text-center">{t('action')}</th>
+                    <th className="px-4 py-3 text-right w-32">{t('subtotal')}</th>
+                    <th className="px-4 py-3 text-center w-12">{t('action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/60">
                   {scannedItems.map((item, idx) => {
-                    const subtotal = (Number(item.quantity) || 0) * (Number(item.purchasePrice) || 0);
+                    const pPrice = Number(item.purchasePrice) || 0;
+                    const qty = Number(item.quantity) || 1;
+                    const subtotal = qty * pPrice;
+                    const hasSale =
+                      item.salePrice !== '' &&
+                      item.salePrice !== undefined &&
+                      item.salePrice !== null &&
+                      !isNaN(Number(item.salePrice));
+                    const sPrice = hasSale ? Number(item.salePrice) : null;
+                    const unitProfit = sPrice !== null ? sPrice - pPrice : null;
+                    const marginPercent =
+                      sPrice !== null && sPrice > 0 ? ((unitProfit / sPrice) * 100).toFixed(1) : null;
+                    const isSellingBelowCost = sPrice !== null && sPrice < pPrice;
+
                     return (
-                      <tr key={idx} className="hover:bg-white/[0.02]">
+                      <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
                         <td className="px-4 py-2.5">
                           <input
                             type="text"
@@ -597,17 +734,18 @@ export default function AiScannerPage() {
                           </td>
                         )}
 
-                        <td className="px-4 py-2.5 w-24">
+                        <td className="px-4 py-2.5">
                           <input
                             type="number"
                             min="1"
                             value={item.quantity}
                             onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
-                            className="w-full rounded-lg border border-line bg-ink-950 px-2.5 py-1.5 text-sm text-white focus:border-brand-blue focus:outline-none"
+                            className="w-full rounded-lg border border-line bg-ink-950 px-2.5 py-1.5 text-sm text-white text-center focus:border-brand-blue focus:outline-none"
                           />
                         </td>
 
-                        <td className="px-4 py-2.5 w-32">
+                        {/* Purchase Price (AI extracted, editable) */}
+                        <td className="px-4 py-2.5">
                           <input
                             type="number"
                             step="0.01"
@@ -620,8 +758,63 @@ export default function AiScannerPage() {
                           />
                         </td>
 
+                        {/* Sale Price (User manual entry, editable) */}
+                        {mode !== 'restaurantInventory' && (
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.salePrice ?? ''}
+                              placeholder="0.00"
+                              onChange={(e) =>
+                                handleItemChange(idx, 'salePrice', e.target.value)
+                              }
+                              className={`w-full rounded-lg border px-2.5 py-1.5 text-sm text-white focus:outline-none ${
+                                isSellingBelowCost
+                                  ? 'border-amber-500/60 bg-amber-500/10 focus:border-amber-400'
+                                  : 'border-line bg-ink-950 focus:border-brand-blue'
+                              }`}
+                            />
+                            {isSellingBelowCost && (
+                              <span className="mt-1 block text-[10px] text-amber-400 leading-tight">
+                                {t('sellingBelowPurchaseWarning')}
+                              </span>
+                            )}
+                          </td>
+                        )}
+
+                        {/* Unit Profit / Margin */}
+                        {mode !== 'restaurantInventory' && (
+                          <td className="px-4 py-2.5 text-center">
+                            {unitProfit === null ? (
+                              <span className="text-xs text-slate-500 italic">—</span>
+                            ) : unitProfit >= 0 ? (
+                              <div className="flex flex-col items-center">
+                                <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
+                                  +{unitProfit.toFixed(2)}
+                                </span>
+                                {marginPercent !== null && (
+                                  <span className="mt-0.5 text-[10px] text-emerald-400/80">
+                                    {marginPercent}%
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center">
+                                <span className="inline-flex items-center rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-400 border border-rose-500/20">
+                                  {unitProfit.toFixed(2)}
+                                </span>
+                                <span className="mt-0.5 text-[10px] text-rose-400/80">
+                                  {t('loss', 'Loss')}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                        )}
+
                         {isPharmacy && mode !== 'sales' && (
-                          <td className="px-4 py-2.5 w-36">
+                          <td className="px-4 py-2.5">
                             <input
                               type="date"
                               value={item.expirationDate || ''}
@@ -635,7 +828,7 @@ export default function AiScannerPage() {
 
                         {isClothing && mode !== 'sales' && (
                           <>
-                            <td className="px-4 py-2.5 w-24">
+                            <td className="px-4 py-2.5">
                               <input
                                 type="text"
                                 placeholder={t('exampleSizes')}
@@ -644,7 +837,7 @@ export default function AiScannerPage() {
                                 className="w-full rounded-lg border border-line bg-ink-950 px-2 py-1 text-xs text-white focus:border-brand-blue focus:outline-none"
                               />
                             </td>
-                            <td className="px-4 py-2.5 w-24">
+                            <td className="px-4 py-2.5">
                               <input
                                 type="text"
                                 placeholder={t('color')}
@@ -657,17 +850,21 @@ export default function AiScannerPage() {
                         )}
 
                         <td className="px-4 py-2.5 text-right font-medium text-white">
-                          {subtotal.toLocaleString(document.documentElement.lang || undefined)} {company?.currency || 'DZD'}
+                          {subtotal.toLocaleString(document.documentElement.lang || undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}{' '}
+                          <span className="text-xs text-slate-400">{company?.currency || 'DZD'}</span>
                         </td>
 
                         <td className="px-4 py-2.5 text-center">
                           <button
                             type="button"
                             onClick={() => removeItemRow(idx)}
-                            className="rounded-lg p-1.5 text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 transition-colors"
                             aria-label={t('removeItem')}
                           >
-                            <Trash2 size={15} />
+                            <Trash2 size={16} />
                           </button>
                         </td>
                       </tr>
@@ -677,13 +874,54 @@ export default function AiScannerPage() {
               </table>
             </div>
 
-            {/* Total Footer */}
-            <div className="flex flex-wrap items-center justify-between border-t border-line bg-ink-800/40 p-4">
+            {/* Total Footer Summary */}
+            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line bg-ink-800/40 p-4">
               <div className="text-sm text-slate-400">
-                {t('totalLineItems')} <span className="font-semibold text-white">{scannedItems.length}</span>
+                {t('totalLineItems')}: <span className="font-semibold text-white">{scannedItems.length}</span>
               </div>
-              <div className="text-base font-bold text-white">
-                {t('grandTotal')} <span className="text-brand-blue">{grandTotal.toLocaleString(document.documentElement.lang || undefined)} {company?.currency || 'DZD'}</span>
+
+              <div className="flex flex-wrap items-center gap-6">
+                <div>
+                  <span className="text-xs text-slate-400 block">{t('totalPurchase', 'Total Purchase')}</span>
+                  <span className="text-base font-bold text-white">
+                    {totalPurchaseCost.toLocaleString(document.documentElement.lang || undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    <span className="text-xs text-slate-400">{company?.currency || 'DZD'}</span>
+                  </span>
+                </div>
+
+                {mode !== 'restaurantInventory' && (
+                  <div>
+                    <span className="text-xs text-slate-400 block">{t('totalSale', 'Total Sale Value')}</span>
+                    <span className="text-base font-bold text-brand-blue">
+                      {totalSaleValue.toLocaleString(document.documentElement.lang || undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      <span className="text-xs text-slate-400">{company?.currency || 'DZD'}</span>
+                    </span>
+                  </div>
+                )}
+
+                {mode !== 'restaurantInventory' && totalSaleValue > 0 && (
+                  <div>
+                    <span className="text-xs text-slate-400 block">{t('projectedProfit', 'Projected Profit')}</span>
+                    <span
+                      className={`text-base font-bold ${
+                        projectedGrossProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {projectedGrossProfit >= 0 ? '+' : ''}
+                      {projectedGrossProfit.toLocaleString(document.documentElement.lang || undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      <span className="text-xs text-slate-400">{company?.currency || 'DZD'}</span>
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
