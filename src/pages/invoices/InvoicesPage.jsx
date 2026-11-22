@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   Receipt,
@@ -49,6 +50,7 @@ export default function InvoicesPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   async function handleMarkPaid(id) {
     try {

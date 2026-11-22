@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ClipboardList,
@@ -84,6 +85,7 @@ export default function RestaurantMenuPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   function openCreateModal() {
     setEditingItem(null);

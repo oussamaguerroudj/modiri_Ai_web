@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   ShoppingCart,
@@ -82,6 +83,7 @@ export default function RestaurantOrdersPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   function getTableLabel(ord) {
     if (!ord) return t('takeaway');

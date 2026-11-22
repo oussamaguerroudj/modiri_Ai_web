@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
 import { X } from 'lucide-react';
+import SyncStatusBar from '../ui/SyncStatusBar.jsx';
 
 export default function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -37,6 +38,7 @@ export default function AppLayout() {
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onToggleMobileMenu={() => setMobileMenuOpen(true)} />
+        <SyncStatusBar />
         <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
           <Outlet />
         </main>

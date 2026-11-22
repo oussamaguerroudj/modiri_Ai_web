@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   UserCheck,
@@ -67,6 +68,7 @@ export default function ClinicQueuePage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   async function handleCallNext() {
     setCallingNext(true);

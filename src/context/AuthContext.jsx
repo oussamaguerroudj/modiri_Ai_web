@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { tokenStorage } from '../api/client';
+import { engine } from '../sync/engine';
+import { cache } from '../sync/cache';
 import * as authApi from '../api/auth';
 import { getMyCompany } from '../api/companies';
 
@@ -37,6 +39,7 @@ export function AuthProvider({ children }) {
       const result = await authApi.login(credentials);
       tokenStorage.setSession(result);
       setUser(result.user);
+      await engine.reload(); // pick up this user's unsynced changes (if any)
       await loadCompany();
       return result;
     },
@@ -52,7 +55,9 @@ export function AuthProvider({ children }) {
     [loadCompany],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Unsynced writes stay in the outbox (scoped to this user); cached reads are wiped.
+    await cache.clearScope();
     tokenStorage.clear();
     setUser(null);
     setCompany(null);

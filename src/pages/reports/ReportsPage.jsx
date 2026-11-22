@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   BarChart3,
@@ -137,6 +138,7 @@ export default function ReportsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   // 1. GLOBAL / ALL-TIME VALUES (unfiltered, represents ALL transactions in database)
   const allRevenue = Number(reports?.global?.allRevenue ?? reports?.allRevenue) || 0;

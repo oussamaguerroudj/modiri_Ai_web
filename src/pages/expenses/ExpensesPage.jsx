@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Wallet,
@@ -115,6 +116,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   function openCreateModal() {
     setEditingExpense(null);

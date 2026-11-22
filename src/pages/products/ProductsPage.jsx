@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   Package,
@@ -93,6 +94,7 @@ export default function ProductsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   // Barcode quick lookup
   async function handleBarcodeLookup(e) {

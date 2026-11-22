@@ -1,4 +1,7 @@
 import axios from 'axios';
+import { offlineAdapter } from '../sync/adapter.js';
+import { engine } from '../sync/engine.js';
+import { network } from '../sync/network.js';
 
 // backend/src/app.js mounts every route under /api, and server.js
 // defaults to port 4000 — see backend/.env.example.
@@ -57,6 +60,7 @@ export const tokenStorage = {
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  adapter: offlineAdapter,
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -111,8 +115,12 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         refreshPromise = null;
-        tokenStorage.clear();
-        window.location.assign('/login');
+        // Only end the session if the server actually refused the refresh token;
+        // a network failure (offline) must keep the user signed in.
+        if (refreshError?.response || refreshError?.message === 'No refresh token') {
+          tokenStorage.clear();
+          window.location.assign('/login');
+        }
         return Promise.reject(normalizeError(refreshError));
       }
     }
@@ -120,5 +128,10 @@ apiClient.interceptors.response.use(
     return Promise.reject(normalizeError(error));
   },
 );
+
+// Offline/sync wiring: replays go through apiClient (auth + refresh) but skip the offline adapter.
+network.configure(API_BASE_URL);
+engine.configure({ send: (cfg) => apiClient.request({ ...cfg, __bypassOffline: true }) });
+engine.start();
 
 export { API_BASE_URL };

@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   BookOpen,
@@ -72,6 +73,7 @@ export default function CreditPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   async function handleRecordPayment(e) {
     e.preventDefault();

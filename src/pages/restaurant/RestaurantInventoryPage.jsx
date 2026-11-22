@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   Package,
@@ -64,6 +65,7 @@ export default function RestaurantInventoryPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   async function handleCreateItem(e) {
     e.preventDefault();

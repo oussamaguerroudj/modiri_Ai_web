@@ -1,3 +1,4 @@
+import { useSyncRefresh } from '../../sync/hooks.js';
 import { useState, useEffect, useCallback } from 'react';
 import {
   CalendarClock,
@@ -61,6 +62,7 @@ export default function RestaurantReservationsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useSyncRefresh(loadData);
 
   function handleOpenCreate() {
     setEditingReservation(null);
